@@ -1,129 +1,429 @@
 @import url(//fonts.googleapis.com/css?family=Open+Sans:400,700,600);
 
-*{
-  box-sizing:border-box;
-}
-html,body{
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  background-color: #F7F8F9;
-  height: 100vh;
-  font-family: 'Open Sans';
 }
 
-button{
-  border-radius: 0;
-  width: 100%;
-  height: 50%;
+body {
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Open Sans", sans-serif;
+  min-height: 100vh;
+  padding-bottom: 60px;
 }
 
-button[type="submit"] {
-  -webkit-appearance:none; -webkit-border-radius:0;
-}
-
-button i{
-  float: right;
-  padding-right: 30px;
-  margin-top: 3px;
-}
-
-button.a{
-  background-color: #1aaaf8;
-}
-
-button.b{
-  background-color: #00cbca;
-}
-
-#tip{
-  text-align: left;
-  color: #c0c9ce;
-  font-size: 14px;
-}
-
-#hostname{
-  position: absolute;
-  bottom: 100px;
-  right: 0;
-  left: 0;
-  color: #8f9ea8;
-  font-size: 24px;
-}
-
-#content-container{
-  z-index: 2;
-  position: relative;
+#app {
+  max-width: 1280px;
   margin: 0 auto;
-  display: table;
-  padding: 10px;
-  max-width: 940px;
-  height: 100%;
-}
-#content-container-center{
-  display: table-cell;
-  text-align: center;
+  padding: 0 16px;
 }
 
-#content-container-center h3{
-  color: #254356;
+/* ── Top bar ── */
+#topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 28px;
+  border-bottom: 1px solid #21262d;
+  margin-bottom: 36px;
 }
 
-#choice{
-  transition: all 300ms linear;
-  line-height: 1.3em;
-  display: inline;
-  vertical-align: middle;
-  font-size: 3em;
-}
-#choice a{
-  text-decoration:none;
-}
-#choice a:hover, #choice a:focus{
-  outline:0;
-  text-decoration:underline;
+#topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-#choice button{
-  display: block;
-  height: 80px;
-  width: 330px;
-  border: none;
-  color: white;
-  text-transform: uppercase;
-  font-size:18px;
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot.red {
+  background: #ff5f57;
+}
+.dot.amber {
+  background: #febc2e;
+}
+.dot.green {
+  background: #28c840;
+}
+
+#brand {
+  font-size: 13px;
   font-weight: 700;
-  margin-top: 10px;
-  margin-bottom: 10px;
-  text-align: left;
-  padding-left: 50px;
+  letter-spacing: 2px;
+  color: #e6edf3;
+  margin-left: 8px;
+}
+#brand-sep {
+  color: #484f58;
+  font-size: 13px;
+}
+#brand-sub {
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  color: #8b949e;
 }
 
-#choice button.a:hover{
-  background-color: #1488c6;
+#version-badge {
+  font-size: 12px;
+  border: 1px solid #30363d;
+  border-radius: 20px;
+  padding: 4px 12px;
+  color: #8b949e;
+  display: none;
+}
+/* ── Heading ── */
+#heading {
+  margin-bottom: 28px;
+}
+#heading h1 {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: #e6edf3;
+  margin-bottom: 8px;
+}
+.subtext {
+  font-size: 0.95rem;
+  color: #8b949e;
+  line-height: 1.6;
 }
 
-#choice button.b:hover{
-  background-color: #00a2a1;
+/* ── Release card ── */
+#release-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 10px;
+  padding: 18px 24px;
+  margin-bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-#choice button.a:focus{
-  background-color: #1488c6;
+#release-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
-#choice button.b:focus{
-  background-color: #00a2a1;
+#release-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e6edf3;
 }
 
-#background-stats{
-  z-index:1;
-  height:100%;
-  width:100%;
-  position:absolute;
+#release-status {
+  font-size: 0.8rem;
+  color: #e3b341;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
-#background-stats div{
-  transition: width 400ms ease-in-out;
-  display:inline-block;
-  margin-bottom:-4px;
-  width:50%;
-  height:100%;
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e3b341;
+  display: inline-block;
+}
+
+#release-meta {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  font-size: 0.8rem;
+  color: #8b949e;
+}
+.meta-label {
+  color: #484f58;
+  margin-right: 4px;
+}
+
+/* ── Vote option cards ── */
+#vote-options {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.option-card {
+  flex: 1;
+  min-width: 200px;
+  border-radius: 10px;
+  padding: 28px 24px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    transform 0.15s,
+    border-color 0.15s;
+}
+
+.option-card:hover {
+  transform: translateY(-3px);
+}
+
+.option-card.green {
+  background: #0f2a0f;
+  border-color: #2d6a2d;
+}
+.option-card.green:hover {
+  border-color: #3fb950;
+}
+
+.option-card.amber {
+  background: #2a1f00;
+  border-color: #7a5c00;
+}
+.option-card.amber:hover {
+  border-color: #e3b341;
+}
+
+.option-card.red {
+  background: #2a0f0f;
+  border-color: #6a2020;
+}
+.option-card.red:hover {
+  border-color: #f85149;
+}
+
+.card-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #e6edf3;
+}
+.card-sub {
+  font-size: 0.85rem;
+  color: #8b949e;
+}
+
+#final-note {
+  font-size: 0.8rem;
+  color: #484f58;
+  text-align: center;
+  margin-top: 8px;
+}
+
+/* ── Already voted ── */
+#voted-confirm {
+  text-align: center;
+  padding: 60px 20px;
+}
+.voted-icon {
+  font-size: 3rem;
+  color: #3fb950;
+  margin-bottom: 16px;
+}
+.voted-text {
+  font-size: 1.1rem;
+  color: #e6edf3;
+  margin-bottom: 8px;
+}
+.voted-sub {
+  font-size: 0.9rem;
+  color: #8b949e;
+}
+
+/* ── Modal ── */
+#modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 100;
+}
+#modal-overlay.active {
+  display: block;
+}
+
+#modal {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 200;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 32px;
+  width: 90%;
+  max-width: 440px;
+}
+#modal.active {
+  display: block;
+}
+
+#modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 16px;
+}
+
+.modal-pill {
+  display: inline-block;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 16px;
+}
+.modal-pill-sub {
+  font-weight: 400;
+  color: #c9d1d9;
+}
+
+#modal-warning {
+  font-size: 0.82rem;
+  color: #8b949e;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+/* ── Name fields ── */
+.name-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 6px;
+}
+
+.field-group label {
+  font-size: 0.8rem;
+  color: #8b949e;
+}
+
+.field-group input {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #e6edf3;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.field-group input:focus {
+  border-color: #58a6ff;
+}
+.field-group input::placeholder {
+  color: #484f58;
+}
+
+#name-error {
+  font-size: 0.8rem;
+  color: #f85149;
+  margin-bottom: 16px;
+}
+.hidden {
+  display: none;
+}
+
+/* ── Modal buttons ── */
+#modal-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  justify-content: flex-end;
+}
+
+#cancel-btn,
+#confirm-btn {
+  padding: 9px 20px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.15s;
+}
+
+#cancel-btn {
+  background: transparent;
+  border-color: #30363d;
+  color: #8b949e;
+}
+#cancel-btn:hover {
+  background: #21262d;
+}
+
+#confirm-btn {
+  background: #238636;
+  border-color: #2ea043;
+  color: #fff;
+}
+#confirm-btn:hover {
+  opacity: 0.85;
+}
+
+/* ── Tablet (768px and up) ── */
+@media (min-width: 768px) {
+  #app {
+    padding: 0 32px;
+  }
+
+  #topbar {
+    padding: 24px 0 32px;
+  }
+
+  #version-badge {
+    display: block;
+  }
+
+  #heading h1 {
+    font-size: 1.7rem;
+  }
+
+  #vote-options {
+    flex-wrap: nowrap;
+  }
+
+  .option-card {
+    min-width: unset;
+  }
+
+  .name-fields {
+    flex-direction: row;
+  }
+}
+
+/* ── Laptop (1024px and up) ── */
+@media (min-width: 1024px) {
+  #app {
+    padding: 0 48px;
+  }
+
+  #topbar {
+    padding: 24px 0 36px;
+  }
+
+  #heading h1 {
+    font-size: 1.9rem;
+  }
+
+  #heading {
+    margin-bottom: 36px;
+  }
 }
