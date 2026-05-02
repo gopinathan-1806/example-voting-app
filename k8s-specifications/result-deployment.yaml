@@ -15,7 +15,8 @@ spec:
         app: result
     spec:
       containers:
-      - image: dockersamples/examplevotingapp_result
+      - image: example-voting-app-result:latest
+        imagePullPolicy: Never
         name: result
         ports:
         - containerPort: 80

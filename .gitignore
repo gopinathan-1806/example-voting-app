@@ -3,4 +3,5 @@ project.lock.json
 bin/
 obj/
 .vs/
+.env
 node_modules/

@@ -1,43 +1,209 @@
-<!DOCTYPE html>
+<!doctype html>
 <html ng-app="catsvsdogs">
-  <head>
-    <meta charset="utf-8">
-    <title>Cats vs Dogs -- Result</title>
-    <base href="/index.html">
-    <meta name = "viewport" content = "width=device-width, initial-scale = 1.0">
-    <meta name="keywords" content="docker-compose, docker, stack">
-    <meta name="author" content="Docker">
-    <link rel='stylesheet' href='/stylesheets/style.css' />
-  </head>
-  <body ng-controller="statsCtrl" >
-     <div id="background-stats">
-       <div id="background-stats-1">
-       </div><!--
-      --><div id="background-stats-2">
+
+<head>
+  <meta charset="utf-8" />
+  <title>SheDeploys — Release Vote Tally</title>
+  <base href="/index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/stylesheets/style.css" />
+</head>
+
+<body ng-controller="statsCtrl">
+  <div id="app">
+    <!-- ── Top bar ── -->
+    <div id="topbar">
+      <div id="topbar-left">
+        <span class="dot red"></span>
+        <span class="dot amber"></span>
+        <span class="dot green"></span>
+        <span id="brand">SHEDEPLOYS</span>
+        <span id="brand-sep">/</span>
+        <span id="brand-sub">RELEASE APPROVAL BOARD</span>
       </div>
+      <div id="version-badge">v1.0.0</div>
     </div>
-    <div id="content-container">
-      <div id="content-container-center">
-        <div id="choice">
-          <div class="choice cats">
-            <div class="label">Cats</div>
-            <div class="stat">{{aPercent | number:1}}%</div>
-          </div>
-          <div class="divider"></div>
-          <div class="choice dogs">
-            <div class="label">Dogs</div>
-            <div class="stat">{{bPercent | number:1}}%</div>
-          </div>
+
+    <!-- ── Page heading ── -->
+    <div id="heading">
+      <div id="heading-left">
+        <h1>Release v1.0.0 — Vote Tally</h1>
+        <p class="subtext">release/v1.0.0-prod &nbsp;·&nbsp; Build #001</p>
+      </div>
+      <div id="live-badge"><span class="live-dot"></span> Live</div>
+    </div>
+
+    <!-- ── Progress bars ── -->
+    <div id="progress-section">
+      <div class="progress-row">
+        <div class="progress-meta">
+          <span class="progress-label">Approve</span>
+          <span class="progress-count green-text">{{aVotes}} {{aVotes === 1 ? 'vote' : 'votes'}}</span>
         </div>
+        <div class="progress-track">
+          <div class="progress-fill green-fill" ng-style="width: {{aVotes && total ? (aVotes/total*100) : 0}}%"></div>
+        </div>
+        <span class="progress-pct">{{aPercent | number:0}}%</span>
+      </div>
+
+      <div class="progress-row">
+        <div class="progress-meta">
+          <span class="progress-label">Needs Testing</span>
+          <span class="progress-count amber-text">{{bVotes}} {{bVotes === 1 ? 'vote' : 'votes'}}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill amber-fill" ng-style="width: {{bVotes && total ? (bVotes/total*100) : 0}}%"></div>
+        </div>
+        <span class="progress-pct">{{bPercent | number:0}}%</span>
+      </div>
+
+      <div class="progress-row">
+        <div class="progress-meta">
+          <span class="progress-label">Reject</span>
+          <span class="progress-count red-text">{{cVotes}} {{cVotes === 1 ? 'vote' : 'votes'}}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill red-fill" ng-style="width: {{cVotes && total ? (cVotes/total*100) : 0}}%"></div>
+        </div>
+        <span class="progress-pct">{{cPercent | number:0}}%</span>
       </div>
     </div>
-    <div id="result">
-      <span ng-if="total == 0">No votes yet</span>
-      <span ng-if="total == 1">{{total}} vote</span>
-      <span ng-if="total >= 2">{{total}} votes</span>
+
+    <!-- ── Vote count cards ── -->
+    <div id="count-cards">
+      <div class="count-card">
+        <div class="count-number green-text">{{aVotes}}</div>
+        <div class="count-label">Approved</div>
+      </div>
+      <div class="count-card">
+        <div class="count-number amber-text">{{bVotes}}</div>
+        <div class="count-label">Needs testing</div>
+      </div>
+      <div class="count-card">
+        <div class="count-number red-text">{{cVotes}}</div>
+        <div class="count-label">Rejected</div>
+      </div>
     </div>
-    <script src="socket.io.js"></script>
-    <script src="angular.min.js"></script>
-    <script src="app.js"></script>
-  </body>
+
+    <!-- ── Recent votes feed ── -->
+    <div id="recent-votes">
+      <div id="recent-header">RECENT VOTES WITH TIMESTAMPS</div>
+
+      <div ng-if="total == 0" id="no-votes">No votes yet</div>
+
+      <div class="vote-row" ng-repeat="v in recentVotes">
+        <div class="voter-avatar">{{v.initials}}</div>
+        <div class="voter-name">{{v.voter_name}}</div>
+        <div class="voter-choice" ng-class="{
+                 'green-text': v.vote == 'a',
+                 'amber-text': v.vote == 'b',
+                 'red-text':   v.vote == 'c'
+               }">
+          {{v.vote == 'a' ? 'Approve' : v.vote == 'b' ? 'Needs Testing' :
+          'Reject'}}
+        </div>
+        <div class="voter-time">{{v.voted_at}}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Reset button ── -->
+  <div id="reset-section">
+    <button id="reset-btn" onclick="openResetModal()">Reset all votes</button>
+  </div>
+
+  </div>
+
+  <!-- ── Reset modal ── -->
+  <div id="reset-overlay" onclick="closeResetModal()"></div>
+  <div id="reset-modal">
+    <div id="reset-modal-header">
+      <h2 id="reset-modal-title">Admin — Reset votes</h2>
+      <button id="reset-close-btn" onclick="closeResetModal()">&#x2715;</button>
+    </div>
+    <p id="reset-modal-desc">
+      This will permanently clear all votes. Enter the admin password to continue.
+    </p>
+    <div class="field-group">
+      <label for="admin-password">Admin password</label>
+      <input type="password" id="admin-password" placeholder="Enter password" autocomplete="off" />
+    </div>
+    <p id="reset-error" class="hidden">Incorrect password. Please try again.</p>
+    <p id="reset-success" class="hidden">All votes cleared successfully.</p>
+    <div id="reset-modal-buttons">
+      <button id="reset-confirm-btn" onclick="confirmReset()">Clear all votes</button>
+    </div>
+  </div>
+
+  <script>
+    function openResetModal() {
+      document.getElementById('admin-password').value = '';
+      document.getElementById('reset-error').classList.add('hidden');
+      document.getElementById('reset-success').classList.add('hidden');
+      document.getElementById('reset-overlay').classList.add('active');
+      document.getElementById('reset-modal').classList.add('active');
+      document.getElementById('admin-password').focus();
+    }
+
+    function closeResetModal() {
+      document.getElementById('reset-overlay').classList.remove('active');
+      document.getElementById('reset-modal').classList.remove('active');
+    }
+
+    function confirmReset() {
+      var password = document.getElementById('admin-password').value;
+      var errorEl = document.getElementById('reset-error');
+      var successEl = document.getElementById('reset-success');
+      var modal = document.getElementById('reset-modal');
+
+      if (password !== 'admin123') {
+        errorEl.classList.remove('hidden');
+        successEl.classList.add('hidden');
+        modal.classList.add('shake');
+        setTimeout(function () {
+          modal.classList.remove('shake');
+        }, 500);
+        return;
+      }
+
+      fetch('/reset', { method: 'POST' })
+        .then(function (res) {
+          if (res.ok) {
+            errorEl.classList.add('hidden');
+            successEl.classList.remove('hidden');
+            document.getElementById('admin-password').value = '';
+            document.getElementById('reset-confirm-btn').disabled = true;
+
+            // Clear vote page cookies by hitting the clear-cookie route
+            fetch('http://localhost:8080/clear-cookie', {
+              method: 'GET',
+              credentials: 'include'
+            });
+
+            setTimeout(function () {
+              closeResetModal();
+              document.getElementById('reset-confirm-btn').disabled = false;
+            }, 1000);
+          } else {
+            errorEl.textContent = 'Reset failed. Try again.';
+            errorEl.classList.remove('hidden');
+          }
+        })
+        .catch(function () {
+          errorEl.textContent = 'Could not reach server.';
+          errorEl.classList.remove('hidden');
+        });
+    }
+
+    // Allow Enter key to confirm
+    document.getElementById('admin-password').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') confirmReset();
+    });
+  </script>
+
+  <script src="socket.io.js"></script>
+  <script src="angular.min.js"></script>
+  <script src="app.js"></script>
+</body>
+
 </html>

@@ -15,5 +15,6 @@ spec:
         app: worker
     spec:
       containers:
-      - image: dockersamples/examplevotingapp_worker
+      - image: example-voting-app-worker:latest
+        imagePullPolicy: Never
         name: worker

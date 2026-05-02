@@ -1,49 +1,223 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="utf-8">
-    <title>{{option_a}} vs {{option_b}}!</title>
-    <base href="/index.html">
-    <meta name = "viewport" content = "width=device-width, initial-scale = 1.0">
-    <meta name="keywords" content="docker-compose, docker, stack">
-    <meta name="author" content="Tutum dev team">
-    <link rel='stylesheet' href="{{ url_for('static',filename='stylesheets/style.css') }}" />
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+    <meta charset="utf-8" />
+    <title>SheDeploys — Release Approval Board</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='stylesheets/style.css') }}"
+    />
   </head>
   <body>
-    <div id="content-container">
-      <div id="content-container-center">
-        <h3>{{option_a}} vs {{option_b}}!</h3>
-        <form id="choice" name='form' method="POST" action="/">
-          <button id="a" type="submit" name="vote" class="a" value="a">{{option_a}}</button>
-          <button id="b" type="submit" name="vote" class="b" value="b">{{option_b}}</button>
-        </form>
-        <div id="tip">
-          (Tip: you can change your vote)
+    <div id="app">
+      <!-- ── Top bar ── -->
+      <div id="topbar">
+        <div id="topbar-left">
+          <span class="dot red"></span>
+          <span class="dot amber"></span>
+          <span class="dot green"></span>
+          <span id="brand">SHEDEPLOYS</span>
+          <span id="brand-sep">/</span>
+          <span id="brand-sub">RELEASE APPROVAL BOARD</span>
         </div>
-        <div id="hostname">
-          Processed by container ID {{hostname}}
+        <div id="version-badge">v1.0.0</div>
+      </div>
+
+      <!-- ── Page heading ── -->
+      <div id="heading">
+        <h1>Should this release go to production?</h1>
+        <p class="subtext">
+          Cast your vote — all team votes are required before deployment
+          proceeds.
+        </p>
+      </div>
+
+      <!-- ── Release info card ── -->
+      <div id="release-card">
+        <div id="release-left">
+          <span id="release-name">release/v1.0.0-prod</span>
+          <span id="release-status">
+            <span class="status-dot"></span> Awaiting approval
+          </span>
+        </div>
+        <div id="release-meta">
+          <span class="meta-item"
+            ><span class="meta-label">Branch</span> main</span
+          >
+          <span class="meta-item"
+            ><span class="meta-label">Build</span> #001</span
+          >
+          <span class="meta-item"
+            ><span class="meta-label">Tests</span> 42/42 passing</span
+          >
+          <span class="meta-item"
+            ><span class="meta-label">Initiated</span>
+            <span id="init-date"></span
+          ></span>
         </div>
       </div>
+
+      <!-- ── Vote cards ── -->
+      {% if not vote %}
+      <div id="vote-options">
+        <div
+          class="option-card green"
+          onclick="openModal('a', 'Approve', 'Ready for prod')"
+        >
+          <div class="card-title">Approve</div>
+          <div class="card-sub">Ready for prod</div>
+        </div>
+
+        <div
+          class="option-card amber"
+          onclick="openModal('b', 'Needs Testing', 'Not confident yet')"
+        >
+          <div class="card-title">Needs Testing</div>
+          <div class="card-sub">Not confident yet</div>
+        </div>
+
+        <div
+          class="option-card red"
+          onclick="openModal('c', 'Reject', 'Do not deploy')"
+        >
+          <div class="card-title">Reject</div>
+          <div class="card-sub">Do not deploy</div>
+        </div>
+      </div>
+      <p id="final-note">
+        Select one option — your vote is final and timestamped.
+      </p>
+
+      {% else %}
+      <!-- ── Already voted state ── -->
+      <div id="voted-confirm">
+        <div class="voted-icon">&#10003;</div>
+        <p class="voted-text">Your vote has been recorded.</p>
+        <p class="voted-sub">
+          Thank you, <strong>{{ voter_name }}</strong>. This vote is final.
+        </p>
+      </div>
+      {% endif %}
     </div>
-    <script src="http://code.jquery.com/jquery-latest.min.js" type="text/javascript"></script>
-    <script src="//cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.js"></script>
 
-    {% if vote %}
+    <!-- ── Confirmation modal ── -->
+    <div id="modal-overlay" onclick="closeModal()"></div>
+    <div id="modal">
+      <h2 id="modal-title">Confirm your vote</h2>
+      <div id="modal-choice-display"></div>
+      <p id="modal-warning">
+        This vote is <strong>final</strong> and cannot be changed.
+      </p>
+
+      <div class="name-fields">
+        <div class="field-group">
+          <label for="first-name">First name</label>
+          <input
+            type="text"
+            id="first-name"
+            placeholder="e.g. John"
+            autocomplete="off"
+          />
+        </div>
+        <div class="field-group">
+          <label for="last-name">Last name</label>
+          <input
+            type="text"
+            id="last-name"
+            placeholder="e.g. Doe"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
+      <p id="name-error" class="hidden">
+        Please enter both your first and last name.
+      </p>
+
+      <div id="modal-buttons">
+        <button id="cancel-btn" onclick="closeModal()">Cancel</button>
+        <button id="confirm-btn" onclick="submitVote()">Confirm vote</button>
+      </div>
+    </div>
+
+    <!-- Hidden form — submitted by JS -->
+    <form id="vote-form" method="POST" action="/">
+      <input type="hidden" id="vote-input" name="vote" />
+      <input type="hidden" id="voter-name-input" name="voter_name" />
+    </form>
+
     <script>
-      var vote = "{{vote}}";
+      document.getElementById("init-date").textContent = new Date()
+        .toISOString()
+        .slice(0, 10);
 
-      if(vote == "a"){
-        $(".a").prop('disabled', true);
-        $(".a").html('{{option_a}} <i class="fa fa-check-circle"></i>');
-        $(".b").css('opacity','0.5');
+      var selectedValue = "";
+      var selectedLabel = "";
+
+      function capitalise(str) {
+        return str
+          .trim()
+          .split(" ")
+          .map(function (w) {
+            return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+          })
+          .join(" ");
       }
-      if(vote == "b"){
-        $(".b").prop('disabled', true);
-        $(".b").html('{{option_b}} <i class="fa fa-check-circle"></i>');
-        $(".a").css('opacity','0.5');
+
+      function openModal(value, label, sub) {
+        selectedValue = value;
+        selectedLabel = label;
+
+        var colours = { a: "#2d6a2d", b: "#7a5c00", c: "#6a2020" };
+        document.getElementById("modal-choice-display").innerHTML =
+          '<div class="modal-pill" style="background:' +
+          colours[value] +
+          '">' +
+          label +
+          ' <span class="modal-pill-sub">— ' +
+          sub +
+          "</span></div>";
+
+        document.getElementById("first-name").value = "";
+        document.getElementById("last-name").value = "";
+        document.getElementById("name-error").classList.add("hidden");
+        document.getElementById("modal-overlay").classList.add("active");
+        document.getElementById("modal").classList.add("active");
+        document.getElementById("first-name").focus();
       }
+
+      function closeModal() {
+        document.getElementById("modal-overlay").classList.remove("active");
+        document.getElementById("modal").classList.remove("active");
+      }
+
+      function submitVote() {
+        var first = capitalise(document.getElementById("first-name").value);
+        var last = capitalise(document.getElementById("last-name").value);
+
+        if (!first || !last) {
+          document.getElementById("name-error").classList.remove("hidden");
+          return;
+        }
+
+        var fullName = first + " " + last;
+
+        document.getElementById("vote-input").value = selectedValue;
+        document.getElementById("voter-name-input").value = fullName;
+
+        document.getElementById("vote-form").submit();
+      }
+
+      // Allow Enter key to confirm
+      document.addEventListener("keydown", function (e) {
+        if (
+          e.key === "Enter" &&
+          document.getElementById("modal").classList.contains("active")
+        ) {
+          submitVote();
+        }
+      });
     </script>
-    {% endif %}
   </body>
 </html>
