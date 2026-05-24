@@ -43,3 +43,31 @@ jobs:
 
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./${{ matrix.service }}
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Checkout voting-infra
+        if: matrix.service == 'frontend'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/voting-infra
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: voting-infra
+       
+      - name: Update ArgoCD manifest and push
+        if: matrix.service == 'frontend'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: voting-app-${{ matrix.service }}
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          IMAGE_TAG="dev-${SHORT_SHA}"
+          
+          cd voting-infra
+          # Update the image tag in the deployment manifest
+          sed -i "s|image: .*|image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s-manifests/dev/frontend-deployment.yaml
+          
+          # Commit and push the changes
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add k8s-manifests/dev/frontend-deployment.yaml
+          git commit -m "Update frontend image tag to $IMAGE_TAG"
+          git push
