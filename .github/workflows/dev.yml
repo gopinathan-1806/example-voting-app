@@ -40,7 +40,7 @@ jobs:
         run: |
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           IMAGE_TAG="dev-${SHORT_SHA}"
-          
+
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./${{ matrix.service }}
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
@@ -58,18 +58,18 @@ jobs:
         run: |
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           IMAGE_TAG="dev-${SHORT_SHA}"
-          
+
           cd voting-infra
-          
+
           if [ "${{ matrix.service }}" = "worker" ]; then
             FILE_EXT="-deployment.yaml"
           else
             FILE_EXT="-rollout.yaml"
           fi
-          
+
           # Update the image tag in the deployment manifest
           sed -i "s|image: .*|image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s-manifests/dev/${{ matrix.service }}${FILE_EXT}
-          
+
           # Commit and push the changes
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
