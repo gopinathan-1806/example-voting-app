@@ -21,8 +21,9 @@ io.on('connection', function (socket) {
 });
 
 var dbPassword = process.env.DB_PASSWORD || 'v4gX9^D4cv';
+var dbEndpoint = process.env.DB_ENDPOINT || 'db';
 var pool = new Pool({
-  connectionString: `postgres://postgres:${dbPassword}@db/postgres`,
+  connectionString: `postgres://postgres:${dbPassword}@${dbEndpoint}/postgres`,
   ssl: {
     rejectUnauthorized: false
   }
