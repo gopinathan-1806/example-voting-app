@@ -19,7 +19,6 @@ jobs:
         service: [frontend, vote, result, worker]
     steps:
       - name: Checkout Source Code
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -34,8 +33,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push (Manual)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Build and Push
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: voting-app-${{ matrix.service }}
@@ -44,19 +42,3 @@ jobs:
           
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$PROD_TAG ./${{ matrix.service }}
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$PROD_TAG
-
-      - name: Retag Image
-        if: github.event_name != 'workflow_dispatch'
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: voting-app-${{ matrix.service }}
-        run: |
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          UAT_TAG="uat-${SHORT_SHA}"
-          PROD_TAG="prod-${{ github.ref_name }}"
-
-          # Retrieve the manifest of the uat image
-          MANIFEST=$(aws ecr batch-get-image --repository-name $ECR_REPOSITORY --image-ids imageTag=$UAT_TAG --query 'images[].imageManifest' --output text)
-
-          # Add the new prod tag to the image using the retrieved manifest
-          aws ecr put-image --repository-name $ECR_REPOSITORY --image-tag $PROD_TAG --image-manifest "$MANIFEST"
