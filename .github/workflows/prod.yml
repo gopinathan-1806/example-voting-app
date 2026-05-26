@@ -1,0 +1,62 @@
+name: CI - Prod
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+
+jobs:
+  retag-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [frontend, vote, result, worker]
+    steps:
+      - name: Checkout Source Code
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push (Manual)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: voting-app-${{ matrix.service }}
+        run: |
+          PROD_TAG="prod-${{ github.ref_name }}"
+          
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$PROD_TAG ./${{ matrix.service }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$PROD_TAG
+
+      - name: Retag Image
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: voting-app-${{ matrix.service }}
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          UAT_TAG="uat-${SHORT_SHA}"
+          PROD_TAG="prod-${{ github.ref_name }}"
+
+          # Retrieve the manifest of the uat image
+          MANIFEST=$(aws ecr batch-get-image --repository-name $ECR_REPOSITORY --image-ids imageTag=$UAT_TAG --query 'images[].imageManifest' --output text)
+
+          # Add the new prod tag to the image using the retrieved manifest
+          aws ecr put-image --repository-name $ECR_REPOSITORY --image-tag $PROD_TAG --image-manifest "$MANIFEST"
