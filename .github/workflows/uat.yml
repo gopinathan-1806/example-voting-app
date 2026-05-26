@@ -3,6 +3,7 @@ name: CI - UAT
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -16,6 +17,10 @@ jobs:
       matrix:
         service: [frontend, vote, result, worker]
     steps:
+      - name: Checkout Source Code
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -28,7 +33,20 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Build and Push (Manual)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: voting-app-${{ matrix.service }}
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          IMAGE_TAG="uat-${SHORT_SHA}"
+          
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./${{ matrix.service }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
       - name: Retag Image
+        if: github.event_name != 'workflow_dispatch'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: voting-app-${{ matrix.service }}

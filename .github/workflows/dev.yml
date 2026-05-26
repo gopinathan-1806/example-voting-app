@@ -46,6 +46,7 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Checkout voting-infra
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/voting-infra
@@ -53,6 +54,7 @@ jobs:
           path: voting-infra
 
       - name: Update ArgoCD manifest and push
+        if: github.event_name != 'workflow_dispatch'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: voting-app-${{ matrix.service }}

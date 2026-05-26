@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -17,6 +18,10 @@ jobs:
       matrix:
         service: [frontend, vote, result, worker]
     steps:
+      - name: Checkout Source Code
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -29,7 +34,19 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Build and Push (Manual)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: voting-app-${{ matrix.service }}
+        run: |
+          PROD_TAG="prod-${{ github.ref_name }}"
+          
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$PROD_TAG ./${{ matrix.service }}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$PROD_TAG
+
       - name: Retag Image
+        if: github.event_name != 'workflow_dispatch'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: voting-app-${{ matrix.service }}
