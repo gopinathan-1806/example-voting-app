@@ -55,7 +55,11 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: voting-app-${{ matrix.service }}
         run: |
-          PROD_TAG="prod-${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PROD_TAG="prod-${{ github.event.inputs.version_tag }}"
+          else
+            PROD_TAG="prod-${{ github.ref_name }}"
+          fi
 
           cd voting-infra
 
