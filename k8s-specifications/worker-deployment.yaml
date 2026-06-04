@@ -1,6 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  namespace: voting-app
   labels:
     app: worker
   name: worker
