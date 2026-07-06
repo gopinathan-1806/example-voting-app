@@ -1,9 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: redis-deployment
+  # namespace: mightycapstone
   labels:
     app: redis
-  name: redis
 spec:
   replicas: 1
   selector:
@@ -15,8 +16,8 @@ spec:
         app: redis
     spec:
       containers:
-      - image: redis:alpine
-        name: redis
+      - name: redis
+        image: redis:alpine
         ports:
         - containerPort: 6379
           name: redis
@@ -25,4 +26,4 @@ spec:
           name: redis-data
       volumes:
       - name: redis-data
-        emptyDir: {} 
+        emptyDir: {}   # ephemeral storage; replace with PVC for persistence

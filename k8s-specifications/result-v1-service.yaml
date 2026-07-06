@@ -1,0 +1,16 @@
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: result-v1-service
+#   namespace: mightycapstone
+#   labels:
+#     app: result-v1
+# spec:
+#   type: LoadBalancer   # 👈 AWS ELB will be provisioned
+#   selector:
+#     app: result-v1
+#   ports:
+#   - name: http
+#     port: 8081       # external port exposed by ELB
+#     targetPort: 80   # container port inside result pod
+

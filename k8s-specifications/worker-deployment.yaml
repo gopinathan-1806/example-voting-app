@@ -1,11 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: worker
+  # namespace: mightycapstone
   labels:
     app: worker
-  name: worker
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: worker
@@ -15,5 +16,12 @@ spec:
         app: worker
     spec:
       containers:
-      - image: dockersamples/examplevotingapp_worker
-        name: worker
+      - name: worker
+        image: 255945442255.dkr.ecr.ap-southeast-1.amazonaws.com/mightycapstonevoting:worker-v2
+        env:
+        - name: REDIS_HOST
+          value: redis-service
+        - name: DB_HOST
+          value: db-service
+
+

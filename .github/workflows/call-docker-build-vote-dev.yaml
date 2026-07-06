@@ -1,0 +1,502 @@
+name: Build Vote Service
+
+on:
+  # workflow_dispatch:
+  push:
+    branches:
+      - development
+    paths:
+      - 'vote/**'
+      - '.github/workflows/call-docker-build-vote-dev.yaml'
+  # pull_request:
+  #   branches:
+  #     - main
+  #     - development
+  #   paths:
+  #     - 'vote/**'
+  #     - '.github/workflows/call-docker-build-vote.yaml'
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare security report directory
+        run: |
+          mkdir -p security-reports
+          chmod 777 security-reports
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: Run SAST scan with Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install semgrep
+          semgrep scan \
+            --config p/ci \
+            --severity ERROR \
+            --exclude result/views/angular.min.js \
+            --exclude result/views/socket.io.js \
+            --sarif \
+            --output security-reports/semgrep-vote.sarif \
+            . || true
+
+      - name: Generate SAST HTML Report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, html, pathlib, datetime
+          sarif_path = pathlib.Path("security-reports/semgrep-vote.sarif")
+          html_path = pathlib.Path("security-reports/semgrep-vote.html")
+          title = "SAST (Semgrep) - Vote Service"
+          rows = []
+          error = None
+          try:
+              data = json.loads(sarif_path.read_text(encoding="utf-8"))
+              runs = data.get("runs", [])
+              for run in runs:
+                  rules = {}
+                  for rule in run.get("tool", {}).get("driver", {}).get("rules", []):
+                      rid = rule.get("id", "")
+                      rules[rid] = rule
+                  for result in run.get("results", []):
+                      rid = result.get("ruleId", "")
+                      rule = rules.get(rid, {})
+                      level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "")
+                      msg = result.get("message", {}).get("text", "")
+                      loc = ""
+                      locations = result.get("locations", [])
+                      if locations:
+                          phys = locations[0].get("physicalLocation", {})
+                          uri = phys.get("artifactLocation", {}).get("uri", "")
+                          region = phys.get("region", {})
+                          line = region.get("startLine", "")
+                          loc = f"{uri}:{line}" if line else uri
+                      rows.append((level, rid, msg, loc))
+          except Exception as exc:
+              error = str(exc)
+          now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+          parts = [
+              "<!doctype html><html><head><meta charset='utf-8'>",
+              f"<title>{html.escape(title)}</title>",
+              "<style>body{font-family:Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;vertical-align:top}th{background:#f3f4f6}.ok{color:green}.warn{color:#b45309}.err{color:#b91c1c}code{background:#f3f4f6;padding:2px 4px}</style>",
+              "</head><body>",
+              f"<h1>{html.escape(title)}</h1>",
+              f"<p>Generated at {html.escape(now)}</p>",
+              f"<p>Source SARIF file: <code>{html.escape(str(sarif_path))}</code></p>"
+          ]
+          if error:
+              parts.append(f"<p class='err'>Could not parse SARIF report: {html.escape(error)}</p>")
+          elif not rows:
+              parts.append("<p class='ok'>No findings were reported.</p>")
+          else:
+              parts.append(f"<p class='warn'>Total findings: {len(rows)}</p>")
+              parts.append("<table><tr><th>Level</th><th>Rule ID</th><th>Message</th><th>Location</th></tr>")
+              for level, rid, msg, loc in rows:
+                  parts.append("<tr>" + "".join(f"<td>{html.escape(str(x))}</td>" for x in (level, rid, msg, loc)) + "</tr>")
+              parts.append("</table>")
+          parts.append("</body></html>")
+          html_path.write_text("\n".join(parts), encoding="utf-8")
+          print(f"Generated {html_path}")
+          PY
+
+      - name: Publish SAST Summary
+        if: always()
+        run: |
+          {
+            echo "## SAST (Semgrep) - Vote Service"
+            echo ""
+            if [ -f security-reports/semgrep-vote.sarif ]; then
+              echo "✅ SAST scan completed."
+              echo ""
+              echo "**Report artifact files:** semgrep-vote.sarif, semgrep-vote.html"
+            else
+              echo "❌ SAST report was not generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run dependency vulnerability scan with Trivy
+        uses: aquasecurity/trivy-action@v0.20.0
+        with:
+          scan-type: fs
+          scan-ref: ./vote
+          vuln-type: library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+          format: sarif
+          output: security-reports/trivy-fs-vote.sarif
+
+      - name: Generate Dependency Scan HTML Report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, html, pathlib, datetime
+          sarif_path = pathlib.Path("security-reports/trivy-fs-vote.sarif")
+          html_path = pathlib.Path("security-reports/trivy-fs-vote.html")
+          title = "SCA / Dependency Scan (Trivy FS) - Vote Service"
+          rows = []
+          error = None
+          try:
+              data = json.loads(sarif_path.read_text(encoding="utf-8"))
+              runs = data.get("runs", [])
+              for run in runs:
+                  rules = {}
+                  for rule in run.get("tool", {}).get("driver", {}).get("rules", []):
+                      rid = rule.get("id", "")
+                      rules[rid] = rule
+                  for result in run.get("results", []):
+                      rid = result.get("ruleId", "")
+                      rule = rules.get(rid, {})
+                      level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "")
+                      msg = result.get("message", {}).get("text", "")
+                      loc = ""
+                      locations = result.get("locations", [])
+                      if locations:
+                          phys = locations[0].get("physicalLocation", {})
+                          uri = phys.get("artifactLocation", {}).get("uri", "")
+                          region = phys.get("region", {})
+                          line = region.get("startLine", "")
+                          loc = f"{uri}:{line}" if line else uri
+                      rows.append((level, rid, msg, loc))
+          except Exception as exc:
+              error = str(exc)
+          now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+          parts = [
+              "<!doctype html><html><head><meta charset='utf-8'>",
+              f"<title>{html.escape(title)}</title>",
+              "<style>body{font-family:Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;vertical-align:top}th{background:#f3f4f6}.ok{color:green}.warn{color:#b45309}.err{color:#b91c1c}code{background:#f3f4f6;padding:2px 4px}</style>",
+              "</head><body>",
+              f"<h1>{html.escape(title)}</h1>",
+              f"<p>Generated at {html.escape(now)}</p>",
+              f"<p>Source SARIF file: <code>{html.escape(str(sarif_path))}</code></p>"
+          ]
+          if error:
+              parts.append(f"<p class='err'>Could not parse SARIF report: {html.escape(error)}</p>")
+          elif not rows:
+              parts.append("<p class='ok'>No findings were reported.</p>")
+          else:
+              parts.append(f"<p class='warn'>Total findings: {len(rows)}</p>")
+              parts.append("<table><tr><th>Level</th><th>Rule ID</th><th>Message</th><th>Location</th></tr>")
+              for level, rid, msg, loc in rows:
+                  parts.append("<tr>" + "".join(f"<td>{html.escape(str(x))}</td>" for x in (level, rid, msg, loc)) + "</tr>")
+              parts.append("</table>")
+          parts.append("</body></html>")
+          html_path.write_text("\n".join(parts), encoding="utf-8")
+          print(f"Generated {html_path}")
+          PY
+
+      - name: Publish Dependency Scan Summary
+        if: always()
+        run: |
+          {
+            echo "## SCA / Dependency Vulnerability Scan (Trivy FS) - Vote Service"
+            echo ""
+            if [ -f security-reports/trivy-fs-vote.sarif ]; then
+              echo "✅ Dependency vulnerability scan completed."
+              echo ""
+              echo "**Report artifact files:** trivy-fs-vote.sarif, trivy-fs-vote.html"
+            else
+              echo "❌ Dependency scan report was not generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run secret scan with Gitleaks
+        run: |
+          GITLEAKS_VERSION=8.24.2
+          curl -sSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks detect \
+            --source . \
+            --redact \
+            --verbose \
+            --report-format json \
+            --report-path security-reports/gitleaks-vote.json \
+            --exit-code 0
+
+      - name: Generate Secret Scan HTML Report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, html, pathlib, datetime
+          json_path = pathlib.Path("security-reports/gitleaks-vote.json")
+          html_path = pathlib.Path("security-reports/gitleaks-vote.html")
+          title = "Secret Scan (Gitleaks) - Vote Service"
+          findings = []
+          error = None
+          try:
+              text = json_path.read_text(encoding="utf-8").strip()
+              data = json.loads(text) if text else []
+              if isinstance(data, list):
+                  findings = data
+              elif isinstance(data, dict):
+                  findings = data.get("findings") or data.get("results") or []
+          except Exception as exc:
+              error = str(exc)
+          now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+          parts = [
+              "<!doctype html><html><head><meta charset='utf-8'>",
+              f"<title>{html.escape(title)}</title>",
+              "<style>body{font-family:Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;vertical-align:top}th{background:#f3f4f6}.ok{color:green}.warn{color:#b45309}.err{color:#b91c1c}code{background:#f3f4f6;padding:2px 4px}</style>",
+              "</head><body>",
+              f"<h1>{html.escape(title)}</h1>",
+              f"<p>Generated at {html.escape(now)}</p>",
+              f"<p>Source JSON file: <code>{html.escape(str(json_path))}</code></p>"
+          ]
+          if error:
+              parts.append(f"<p class='err'>Could not parse Gitleaks report: {html.escape(error)}</p>")
+          elif not findings:
+              parts.append("<p class='ok'>No secrets were reported.</p>")
+          else:
+              parts.append(f"<p class='warn'>Total findings: {len(findings)}</p>")
+              parts.append("<table><tr><th>Rule</th><th>Description</th><th>File</th><th>Line</th><th>Commit</th></tr>")
+              for item in findings:
+                  rule = item.get("RuleID") or item.get("rule") or ""
+                  desc = item.get("Description") or item.get("description") or ""
+                  file = item.get("File") or item.get("file") or ""
+                  line = item.get("StartLine") or item.get("line") or ""
+                  commit = item.get("Commit") or item.get("commit") or ""
+                  parts.append("<tr>" + "".join(f"<td>{html.escape(str(x))}</td>" for x in (rule, desc, file, line, commit)) + "</tr>")
+              parts.append("</table>")
+          parts.append("</body></html>")
+          html_path.write_text("\n".join(parts), encoding="utf-8")
+          print(f"Generated {html_path}")
+          PY
+
+      - name: Publish Secret Scan Summary
+        if: always()
+        run: |
+          {
+            echo "## Secret Scan (Gitleaks) - Vote Service"
+            echo ""
+            if [ -f security-reports/gitleaks-vote.json ]; then
+              echo "✅ Secret scan completed."
+              echo ""
+              echo "**Report artifact files:** gitleaks-vote.json, gitleaks-vote.html"
+            else
+              echo "❌ Secret scan report was not generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set version tag
+        run: |
+          if [[ "${GITHUB_REF##*/}" == "main" ]]; then
+            echo "TAG=v2" >> $GITHUB_ENV
+          else
+            echo "TAG=v1" >> $GITHUB_ENV
+          fi
+
+      - name: Build Docker image
+        run: |
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}/bq-eks-repo-dev
+          docker build -t vote-service:${TAG} ./vote
+          docker tag vote-service:${TAG} $REGISTRY:vote-${TAG}
+
+      - name: Security scan with Trivy
+        uses: aquasecurity/trivy-action@v0.20.0
+        with:
+          scan-type: image
+          image-ref: vote-service:${{ env.TAG }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+          format: sarif
+          output: security-reports/trivy-image-vote.sarif
+
+      - name: Generate Container Image Scan HTML Report
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, html, pathlib, datetime
+          sarif_path = pathlib.Path("security-reports/trivy-image-vote.sarif")
+          html_path = pathlib.Path("security-reports/trivy-image-vote.html")
+          title = "Container Image Scan (Trivy Image) - Vote Service"
+          rows = []
+          error = None
+          try:
+              data = json.loads(sarif_path.read_text(encoding="utf-8"))
+              runs = data.get("runs", [])
+              for run in runs:
+                  rules = {}
+                  for rule in run.get("tool", {}).get("driver", {}).get("rules", []):
+                      rid = rule.get("id", "")
+                      rules[rid] = rule
+                  for result in run.get("results", []):
+                      rid = result.get("ruleId", "")
+                      rule = rules.get(rid, {})
+                      level = result.get("level") or rule.get("defaultConfiguration", {}).get("level", "")
+                      msg = result.get("message", {}).get("text", "")
+                      loc = ""
+                      locations = result.get("locations", [])
+                      if locations:
+                          phys = locations[0].get("physicalLocation", {})
+                          uri = phys.get("artifactLocation", {}).get("uri", "")
+                          region = phys.get("region", {})
+                          line = region.get("startLine", "")
+                          loc = f"{uri}:{line}" if line else uri
+                      rows.append((level, rid, msg, loc))
+          except Exception as exc:
+              error = str(exc)
+          now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+          parts = [
+              "<!doctype html><html><head><meta charset='utf-8'>",
+              f"<title>{html.escape(title)}</title>",
+              "<style>body{font-family:Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;vertical-align:top}th{background:#f3f4f6}.ok{color:green}.warn{color:#b45309}.err{color:#b91c1c}code{background:#f3f4f6;padding:2px 4px}</style>",
+              "</head><body>",
+              f"<h1>{html.escape(title)}</h1>",
+              f"<p>Generated at {html.escape(now)}</p>",
+              f"<p>Source SARIF file: <code>{html.escape(str(sarif_path))}</code></p>"
+          ]
+          if error:
+              parts.append(f"<p class='err'>Could not parse SARIF report: {html.escape(error)}</p>")
+          elif not rows:
+              parts.append("<p class='ok'>No findings were reported.</p>")
+          else:
+              parts.append(f"<p class='warn'>Total findings: {len(rows)}</p>")
+              parts.append("<table><tr><th>Level</th><th>Rule ID</th><th>Message</th><th>Location</th></tr>")
+              for level, rid, msg, loc in rows:
+                  parts.append("<tr>" + "".join(f"<td>{html.escape(str(x))}</td>" for x in (level, rid, msg, loc)) + "</tr>")
+              parts.append("</table>")
+          parts.append("</body></html>")
+          html_path.write_text("\n".join(parts), encoding="utf-8")
+          print(f"Generated {html_path}")
+          PY
+
+      - name: Publish Container Image Scan Summary
+        if: always()
+        run: |
+          {
+            echo "## Container Image Scan (Trivy Image) - Vote Service"
+            echo ""
+            if [ -f security-reports/trivy-image-vote.sarif ]; then
+              echo "✅ Container image scan completed."
+              echo ""
+              echo "**Report artifact files:** trivy-image-vote.sarif, trivy-image-vote.html"
+            else
+              echo "❌ Container image scan report was not generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run DAST scan with OWASP ZAP
+        continue-on-error: true
+        run: |
+          docker network create vote-dast-net || true
+          docker rm -f redis vote-dast || true
+          docker run -d --name redis --network vote-dast-net redis:7-alpine
+          docker run -d --name vote-dast --network vote-dast-net -p 8080:80 vote-service:${TAG}
+          sleep 20
+          curl --fail --retry 10 --retry-delay 5 http://localhost:8080/
+
+          mkdir -p zap-reports
+          chmod 777 zap-reports
+
+          docker run --rm \
+            --user root \
+            --network host \
+            -v "${PWD}/zap-reports:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t http://localhost:8080 \
+              -I \
+              -r vote-zap-report.html
+
+          mkdir -p security-reports
+          cp zap-reports/vote-zap-report.html security-reports/vote-zap-report.html || true
+          echo "=== zap-reports ==="
+          ls -lah zap-reports || true
+          echo "=== zap-reports ==="
+          ls -lah zap-reports || true
+          echo "=== security-reports ==="
+          ls -lah security-reports || true || true
+
+      - name: Verify ZAP Report
+        if: always()
+        run: |
+          echo "=== zap-reports ==="
+          ls -lah zap-reports || true
+          echo "=== security-reports ==="
+          ls -lah security-reports || true
+
+      - name: Publish DAST Summary
+        if: always()
+        run: |
+          {
+            echo "## DAST (OWASP ZAP) - Vote Service"
+            echo ""
+            if [ -f security-reports/vote-zap-report.html ]; then
+              echo "✅ DAST scan completed and HTML report was generated."
+              echo ""
+              echo "**Report artifact file:** vote-zap-report.html"
+            else
+              echo "❌ DAST report was not generated."
+              echo ""
+              echo "Please check the OWASP ZAP logs above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish Consolidated Security Summary
+        if: always()
+        run: |
+          {
+            echo "# DevSecOps Security Reports - Vote Service"
+            echo ""
+            echo "| Security Control | Report File |"
+            echo "|---|---|"
+            echo "| SAST (Semgrep) | semgrep-vote.sarif, semgrep-vote.html |"
+            echo "| SCA / Dependency Scan (Trivy FS) | trivy-fs-vote.sarif, trivy-fs-vote.html |"
+            echo "| Secret Scan (Gitleaks) | gitleaks-vote.json, gitleaks-vote.html |"
+            echo "| Container Image Scan (Trivy Image) | trivy-image-vote.sarif, trivy-image-vote.html |"
+            echo "| DAST (OWASP ZAP) | vote-zap-report.html |"
+            echo ""
+            echo "Human-readable HTML reports and machine-readable SARIF/JSON reports are uploaded as the **security-reports-vote** workflow artifact."
+            echo ""
+            echo "## Files generated"
+            echo ""
+            ls -lah security-reports || true
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports-vote
+          path: security-reports/
+          if-no-files-found: warn
+
+      - name: Push image to ECR
+        run: | 
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}/bq-eks-repo-dev
+          docker push $REGISTRY:vote-${TAG}
+      
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region ap-southeast-1 \
+            --name bq-eks-cluster-dev
+      
+      - name: Deploy application
+        run: |
+          kubectl apply -f k8s-specifications/
+      
+      - name: Update deployment
+        run: |
+          kubectl set image deployment/vote \
+          vote=${{ steps.login-ecr.outputs.registry }}/bq-eks-repo-dev:vote-${TAG}
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/vote
