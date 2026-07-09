@@ -3,4 +3,9 @@ project.lock.json
 bin/
 obj/
 .vs/
-node_modules/
+node_modules
+
+# Environment files with secrets
+.env
+.env.local
+.env.*.local/
