@@ -1,0 +1,202 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: "ap-southeast-2"
+    # ACCOUNT_ID and ECR_BASE are injected by CodeBuild project environment variables
+    # (set via deploy.ps1 when the project is created -- no hardcoded values needed here)
+    ACCOUNT_ID: "YOUR_AWS_ACCOUNT_ID"
+    CLUSTER_NAME: "voting-app-cluster"
+    ECR_BASE: "YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com"
+    SNS_TOPIC_NAME: "VotingApp-Notifications"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - echo Installing kubectl
+      - curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x kubectl && mv kubectl /usr/local/bin/
+      - kubectl version --client
+
+      - echo Installing Helm
+      - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      - helm version
+
+      - echo Installing eksctl
+      - curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz"
+      - tar -xzf eksctl_Linux_amd64.tar.gz && mv eksctl /usr/local/bin/
+      - eksctl version
+
+  pre_build:
+    commands:
+      - echo ECR Login
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_BASE
+
+      - echo Configure kubeconfig
+      - aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+
+      - echo Resolve SNS ARN
+      - export SNS_ARN=$(aws sns list-topics --region $AWS_REGION --query "Topics[?ends_with(TopicArn,':${SNS_TOPIC_NAME}')].TopicArn" --output text)
+      - echo SNS_ARN=$SNS_ARN
+
+      - export IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-8)
+      - echo IMAGE_TAG=$IMAGE_TAG
+
+      # ── AWS Load Balancer Controller setup ──────────────────────────────
+      - echo Setting up OIDC provider for IRSA
+      - |
+        OIDC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
+          --query "cluster.identity.oidc.issuer" --output text | cut -d '/' -f 5)
+        EXISTING=$(aws iam list-open-id-connect-providers --query \
+          "OpenIDConnectProviderList[?ends_with(Arn,'$OIDC_ID')].Arn" --output text)
+        if [ -z "$EXISTING" ]; then
+          eksctl utils associate-iam-oidc-provider \
+            --cluster $CLUSTER_NAME --region $AWS_REGION --approve
+          echo OIDC provider created
+        else
+          echo OIDC provider already exists
+        fi
+
+      - echo Creating ALB Controller IAM role
+      - |
+        if ! aws iam get-role --role-name AmazonEKSLoadBalancerControllerRole 2>/dev/null; then
+          curl -LO https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.1/docs/install/iam_policy.json
+          aws iam create-policy \
+            --policy-name AWSLoadBalancerControllerIAMPolicy \
+            --policy-document file://iam_policy.json \
+            --region $AWS_REGION || true
+
+          OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
+            --query "cluster.identity.oidc.issuer" --output text | sed 's|https://||')
+
+          cat <<EOF > lbc-trust.json
+        {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"},
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+              "StringEquals": {
+                "${OIDC_PROVIDER}:aud": "sts.amazonaws.com",
+                "${OIDC_PROVIDER}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+              }
+            }
+          }]
+        }
+        EOF
+
+          aws iam create-role \
+            --role-name AmazonEKSLoadBalancerControllerRole \
+            --assume-role-policy-document file://lbc-trust.json || true
+          aws iam attach-role-policy \
+            --role-name AmazonEKSLoadBalancerControllerRole \
+            --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerIAMPolicy || true
+          echo ALB controller IAM role created
+        else
+          echo ALB controller IAM role already exists
+        fi
+
+      - echo Installing AWS Load Balancer Controller via Helm
+      - |
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.4/cert-manager.yaml
+        kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s
+        kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=120s
+
+        LBC_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/AmazonEKSLoadBalancerControllerRole"
+
+        helm repo add eks https://aws.github.io/eks-charts
+        helm repo update
+
+        if helm status aws-load-balancer-controller -n kube-system 2>/dev/null; then
+          echo AWS LBC already installed -- upgrading
+          helm upgrade aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName=$CLUSTER_NAME \
+            --set serviceAccount.create=true \
+            --set "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=${LBC_ROLE_ARN}" \
+            --set region=$AWS_REGION \
+            --set vpcId=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
+              --query "cluster.resourcesVpcConfig.vpcId" --output text)
+        else
+          helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName=$CLUSTER_NAME \
+            --set serviceAccount.create=true \
+            --set "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=${LBC_ROLE_ARN}" \
+            --set region=$AWS_REGION \
+            --set vpcId=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
+              --query "cluster.resourcesVpcConfig.vpcId" --output text)
+        fi
+        kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=120s
+
+      # ── CloudWatch Container Insights ──────────────────────────────────
+      - echo Enabling CloudWatch Container Insights
+      - |
+        aws eks update-addon \
+          --cluster-name $CLUSTER_NAME \
+          --addon-name amazon-cloudwatch-observability \
+          --region $AWS_REGION 2>/dev/null || \
+        aws eks create-addon \
+          --cluster-name $CLUSTER_NAME \
+          --addon-name amazon-cloudwatch-observability \
+          --region $AWS_REGION || true
+
+  build:
+    commands:
+      - echo Building Docker images
+      - docker build -t $ECR_BASE/voting-app/vote:$IMAGE_TAG -t $ECR_BASE/voting-app/vote:latest ./vote
+      - docker build -t $ECR_BASE/voting-app/result:$IMAGE_TAG -t $ECR_BASE/voting-app/result:latest ./result
+      - docker build -t $ECR_BASE/voting-app/worker:$IMAGE_TAG -t $ECR_BASE/voting-app/worker:latest ./worker
+
+  post_build:
+    commands:
+      - echo Pushing images to ECR
+      - docker push $ECR_BASE/voting-app/vote:$IMAGE_TAG
+      - docker push $ECR_BASE/voting-app/vote:latest
+      - docker push $ECR_BASE/voting-app/result:$IMAGE_TAG
+      - docker push $ECR_BASE/voting-app/result:latest
+      - docker push $ECR_BASE/voting-app/worker:$IMAGE_TAG
+      - docker push $ECR_BASE/voting-app/worker:latest
+
+      - echo Deploying to EKS
+      - kubectl apply -f aws/k8s/namespace.yaml
+      - kubectl apply -f aws/k8s/postgres-secret.yaml
+      - kubectl apply -f aws/k8s/configmap.yaml
+      - kubectl apply -f aws/k8s/redis-deployment.yaml
+      - kubectl apply -f aws/k8s/redis-service.yaml
+      - kubectl apply -f aws/k8s/db-pvc.yaml
+      - kubectl apply -f aws/k8s/db-deployment.yaml
+      - kubectl apply -f aws/k8s/db-service.yaml
+      - kubectl apply -f aws/k8s/vote-deployment.yaml
+      - kubectl apply -f aws/k8s/vote-service.yaml
+      - kubectl apply -f aws/k8s/result-deployment.yaml
+      - kubectl apply -f aws/k8s/result-service.yaml
+      - kubectl apply -f aws/k8s/worker-deployment.yaml
+
+      - echo Waiting for rollouts
+      - kubectl rollout status deployment/vote -n voting --timeout=300s
+      - kubectl rollout status deployment/result -n voting --timeout=300s
+      - kubectl rollout status deployment/worker -n voting --timeout=300s
+
+      - echo Fetching service URLs
+      - kubectl get svc -n voting
+      - |
+        VOTE_URL=$(kubectl get svc vote -n voting \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+        RESULT_URL=$(kubectl get svc result -n voting \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+        echo "Vote App    -- http://$VOTE_URL"
+        echo "Result App  -- http://$RESULT_URL"
+
+        if [ -n "$SNS_ARN" ] && [ "$SNS_ARN" != "None" ]; then
+          aws sns publish \
+            --topic-arn "$SNS_ARN" \
+            --subject "DEPLOYED - Voting App" \
+            --message "Deployment complete. Tag: $IMAGE_TAG | Vote: http://$VOTE_URL | Result: http://$RESULT_URL" \
+            --region $AWS_REGION
+        else
+          echo "SNS_ARN not set -- skipping notification"
+        fi
