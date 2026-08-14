@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: voting
+data:
+  # Non-sensitive application config
+  # Database credentials are stored in postgres-secret (Secret)
+  REDIS_HOST: "redis"
+  DB_HOST: "db"

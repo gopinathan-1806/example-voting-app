@@ -1,0 +1,89 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: "ap-southeast-2"
+    # ACCOUNT_ID and ECR_BASE are injected by CodeBuild project environment variables
+    # (set via deploy.ps1 when the project is created -- no hardcoded values needed here)
+    ACCOUNT_ID: "YOUR_AWS_ACCOUNT_ID"
+    CLUSTER_NAME: "voting-app-cluster"
+    ECR_BASE: "YOUR_AWS_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - echo Installing kubectl
+      - curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+      - chmod +x kubectl && mv kubectl /usr/local/bin/
+      - kubectl version --client
+
+  pre_build:
+    commands:
+      - echo ECR Login
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_BASE
+
+      - echo Configure kubeconfig
+      - aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME
+
+      - export IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-8)
+      - echo IMAGE_TAG=$IMAGE_TAG
+
+      # ── AWS Load Balancer Controller setup ──────────────────────────────
+      # ── CloudWatch Container Insights ──────────────────────────────────
+  build:
+    commands:
+      - echo Building Docker images
+      - docker build -t $ECR_BASE/voting-app/vote:$IMAGE_TAG -t $ECR_BASE/voting-app/vote:latest ./vote
+      - docker build -t $ECR_BASE/voting-app/result:$IMAGE_TAG -t $ECR_BASE/voting-app/result:latest ./result
+      - docker build -t $ECR_BASE/voting-app/worker:$IMAGE_TAG -t $ECR_BASE/voting-app/worker:latest ./worker
+
+  post_build:
+    commands:
+      - echo Pushing images to ECR
+      - docker push $ECR_BASE/voting-app/vote:$IMAGE_TAG
+      - docker push $ECR_BASE/voting-app/vote:latest
+      - docker push $ECR_BASE/voting-app/result:$IMAGE_TAG
+      - docker push $ECR_BASE/voting-app/result:latest
+      - docker push $ECR_BASE/voting-app/worker:$IMAGE_TAG
+      - docker push $ECR_BASE/voting-app/worker:latest
+
+      - echo Deploying to EKS
+      - kubectl apply -f aws/k8s/postgres-secret.yaml
+      - kubectl apply -f aws/k8s/configmap.yaml
+      - kubectl apply -f aws/k8s/redis-deployment.yaml
+      - kubectl apply -f aws/k8s/redis-service.yaml
+      - kubectl apply -f aws/k8s/db-pvc.yaml
+      - kubectl apply -f aws/k8s/db-deployment.yaml
+      - kubectl apply -f aws/k8s/db-service.yaml
+      - kubectl apply -f aws/k8s/vote-deployment.yaml
+      - kubectl apply -f aws/k8s/vote-service.yaml
+      - kubectl apply -f aws/k8s/result-deployment.yaml
+      - kubectl apply -f aws/k8s/result-service.yaml
+      - kubectl apply -f aws/k8s/worker-deployment.yaml
+
+      - echo Waiting for rollouts
+      - kubectl rollout status deployment/vote -n voting --timeout=300s
+      - kubectl rollout status deployment/result -n voting --timeout=300s
+      - kubectl rollout status deployment/worker -n voting --timeout=300s
+
+      - echo Fetching service URLs
+      - kubectl get svc -n voting
+      - |
+        VOTE_URL=$(kubectl get svc vote -n voting \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+        RESULT_URL=$(kubectl get svc result -n voting \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+        echo "Vote App    -- http://$VOTE_URL"
+        echo "Result App  -- http://$RESULT_URL"
+
+        if [ -n "$SNS_ARN" ] && [ "$SNS_ARN" != "None" ]; then
+          aws sns publish \
+            --topic-arn "$SNS_ARN" \
+            --subject "DEPLOYED - Voting App" \
+            --message "Deployment complete. Tag: $IMAGE_TAG | Vote: http://$VOTE_URL | Result: http://$RESULT_URL" \
+            --region $AWS_REGION
+        else
+          echo "SNS_ARN not set -- skipping notification"
+        fi
