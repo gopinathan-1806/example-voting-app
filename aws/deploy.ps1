@@ -138,8 +138,8 @@ if ($LASTEXITCODE -ne 0) {
         --region $REGION `
         --node-role $NODE_ROLE_ARN `
         --subnets ($SUBNET_IDS -split ',') `
-        --instance-types "t3.medium" `
-        --scaling-config "minSize=2,maxSize=4,desiredSize=2" `
+        --instance-types "t3.micro" `
+        --scaling-config "minSize=3,maxSize=4,desiredSize=3" `
         --disk-size 20 `
         --ami-type AL2_x86_64 | Out-Null
 
