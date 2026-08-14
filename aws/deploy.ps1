@@ -92,10 +92,12 @@ if ($LASTEXITCODE -ne 0) {
     aws iam attach-role-policy --role-name $ROLE_EKS_NODE --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly | Out-Null
     aws iam attach-role-policy --role-name $ROLE_EKS_NODE --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy | Out-Null
     aws iam attach-role-policy --role-name $ROLE_EKS_NODE --policy-arn arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy | Out-Null
+    aws iam attach-role-policy --role-name $ROLE_EKS_NODE --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy | Out-Null
     OK "EKS node role created: $ROLE_EKS_NODE"
 } else {
     OK "EKS node role already exists"
 }
+aws iam attach-role-policy --role-name $ROLE_EKS_NODE --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy | Out-Null
 
 # ── STEP 4: EKS Cluster ───────────────────────────
 Log "[4/8] Creating EKS cluster (this takes 15-20 minutes)..."
@@ -163,6 +165,20 @@ if ($LASTEXITCODE -ne 0) {
     OK "CloudWatch Container Insights addon created"
 } else {
     OK "CloudWatch Container Insights addon already exists"
+}
+
+# EBS CSI driver provisions the persistent volume used by Postgres.
+Log "[6b/9] Enabling EBS CSI driver..."
+$ebsCsiAddon = aws eks describe-addon --cluster-name $CLUSTER_NAME --addon-name aws-ebs-csi-driver --region $REGION 2>&1
+if ($LASTEXITCODE -ne 0) {
+    aws eks create-addon `
+        --cluster-name $CLUSTER_NAME `
+        --addon-name aws-ebs-csi-driver `
+        --resolve-conflicts OVERWRITE `
+        --region $REGION | Out-Null
+    OK "EBS CSI driver addon created"
+} else {
+    OK "EBS CSI driver addon already exists"
 }
 
 # ── STEP 7: ALB Controller IAM Policy and Role ───
