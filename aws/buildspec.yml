@@ -50,7 +50,6 @@ phases:
       - docker push $ECR_BASE/voting-app/worker:latest
 
       - echo Deploying to EKS
-      - kubectl apply -f aws/k8s/namespace.yaml
       - kubectl apply -f aws/k8s/postgres-secret.yaml
       - kubectl apply -f aws/k8s/configmap.yaml
       - kubectl apply -f aws/k8s/redis-deployment.yaml
